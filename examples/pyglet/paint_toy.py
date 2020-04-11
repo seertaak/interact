@@ -1,15 +1,17 @@
 import pyglet as gl
 from pyglet.window import key
 from colorsys import *
-from interact import *
+from interact.gesture_recognizer import *
 
-window = gl.window.Window(resizable=True)
-label = gl.text.Label('', font_name='Ubuntu', font_size=20, x=window.width / 2, y=window.height / 2,
-                      anchor_x='center', anchor_y='center')
+from examples.pyglet.scaffolding import *
 
+ui = InteractionEngine()
 bg = (1.0, 0, 0)
+lines: List[Point] = []
+main_batch = gl.graphics.Batch()
 
-def change_color(state: UIState):
+
+def change_color():
     global bg
     h, s, v = rgb_to_hsv(*bg)
     h += 0.1
@@ -28,6 +30,7 @@ def change_intensity(dintensity):
     args.append(1.0)
     gl.gl.glClearColor(*args)
 
+
 def change_saturation(dsat):
     global bg
     h, s, v = rgb_to_hsv(*bg)
@@ -37,10 +40,6 @@ def change_saturation(dsat):
     args.append(1.0)
     gl.gl.glClearColor(*args)
 
-
-cmd_quit = Trivial(KeyPress(ord('q'), 'up'), lambda ui: gl.app.exit())
-lines: List[Point] = []
-main_batch = gl.graphics.Batch()
 
 def draw_lines():
     global main_batch
@@ -54,23 +53,24 @@ def draw_lines():
             ('c3B', (255, 255, 255, 255, 255, 255))
         )
 
-def begin_line(ui: UIState):
-    lines.append((ui.mouse_position, ui.mouse_position))
+
+def begin_line():
+    lines.append((ui.state.mouse_position, ui.state.mouse_position))
     draw_lines()
 
-def update_line(ui: UIState):
+
+def update_line():
     assert lines
-    lines[-1] = (lines[-1][0], ui.mouse_position)
+    lines[-1] = (lines[-1][0], ui.state.mouse_position)
     draw_lines()
 
-cmd_draw_line = Sequence([
-    Trivial(KeyPress(ord('l'), 'down')),
-    Trivial(KeyPress(ord('l'), 'up')),
-    Optional(Repeating(Trivial(MouseMove()))),
-    Trivial(MousePress('left', 'down'), begin_line),
-    Repeating(Trivial(MouseMove(), update_line))
-])
 
+cmd_quit = Trivial(KeyPress(ord('q'), 'up'), lambda: gl.app.exit())
+cmd_draw_line = Sequence([
+    Trivial(KeyPress(ord('l'), 'down'), begin_line),
+    Repeating(Trivial(MouseMove(), update_line)),
+    Trivial(KeyPress(ord('l'), 'up')),
+])
 cmd_change_color = IgnoreIf(
     lambda e: isinstance(e, KeyPress) and e.action == 'up',
     Sequence([
@@ -78,7 +78,6 @@ cmd_change_color = IgnoreIf(
         Repeating(Trivial(KeyPress(ord('d'), 'down'), change_color))
     ])
 )
-
 cmd_change_intensity = Sequence(
     [
         Trivial(KeyPress(ord('i'), 'down')),
@@ -89,18 +88,18 @@ cmd_change_intensity = Sequence(
                         Trivial(KeyPress(key.UP, 'down')),
                         Trivial(KeyPress(key.UP, 'up')),
                     ],
-                    lambda _: change_intensity(0.1)
+                    lambda: change_intensity(0.1)
                 ),
                 Sequence(
                     [
                         Trivial(KeyPress(key.DOWN, 'down')),
                         Trivial(KeyPress(key.DOWN, 'up')),
                     ],
-                    lambda _: change_intensity(-0.1)
+                    lambda: change_intensity(-0.1)
                 ),
                 Trivial(
                     MouseScroll(),
-                    lambda ui: change_intensity(ui.mouse_scroll.y/100.0)
+                    lambda: change_intensity(ui.state.mouse_scroll.y/100.0)
                 )
             ])
         )
@@ -116,89 +115,38 @@ cmd_change_saturation = Sequence(
                         Trivial(KeyPress(key.UP, 'down')),
                         Trivial(KeyPress(key.UP, 'up')),
                     ],
-                    lambda _: change_saturation(0.1)
+                    lambda: change_saturation(0.1)
                 ),
                 Sequence(
                     [
                         Trivial(KeyPress(key.DOWN, 'down')),
                         Trivial(KeyPress(key.DOWN, 'up')),
                     ],
-                    lambda _: change_saturation(-0.1)
+                    lambda: change_saturation(-0.1)
                 ),
             ])
         )
     ]
 )
 
-gestures = [cmd_quit, cmd_change_color, cmd_change_intensity, cmd_change_saturation, cmd_draw_line]
-ui = InteractionMachine(gestures)
+ui.commands = [cmd_quit, cmd_change_color, cmd_change_intensity, cmd_change_saturation, cmd_draw_line]
+
+window = gl.window.Window(resizable=True)
+window.on_key_press = on_key_press(ui)
+window.on_key_release = on_key_release(ui)
+window.on_mouse_press = on_mouse_press(ui)
+window.on_mouse_release = on_mouse_release(ui)
+window.on_mouse_motion = on_mouse_motion(ui)
+window.on_mouse_drag = on_mouse_drag(ui)
+window.on_mouse_scroll = on_mouse_scroll(ui)
+
 gl.gl.glLineWidth(2)
-
-
-@window.event
-def on_key_press(key_code: int, modifiers: int):
-    ui.handle(KeyPress(key_code, 'down'))
-
-
-@window.event
-def on_key_release(key_code: int, modifiers: int):
-    ui.handle(KeyPress(key_code, 'up'))
-
-
-@window.event
-def on_mouse_press(x, y, button, modifiers):
-    global ui_state
-    ui_state.mouse_position = Point(x, y)
-
-    b = 'left'
-    if button == 4:
-        b = 'middle'
-    elif button == 2:
-        b = 'right'
-
-    ui.handle(MousePress(b, 'down'))
-
-
-@window.event
-def on_mouse_release(x, y, button, modifiers):
-    global ui_state
-    ui_state.mouse_position = Point(x, y)
-
-    b = 'left'
-    if button == 4:
-        b = 'middle'
-    elif button == 2:
-        b = 'right'
-
-    ui.handle(MousePress(b, 'up'))
-
-
-@window.event
-def on_mouse_drag(x, y, dx, dy, button, modifier):
-    global ui_state
-    ui_state.mouse_position = Point(x, y)
-    ui.handle(MouseMove())
-
-
-@window.event 
-def on_mouse_scroll(x, y, scroll_x, scroll_y):
-    global ui_state
-    ui_state.mouse_position = Point(x, y)
-    ui_state.mouse_scroll = Point(scroll_x, scroll_y)
-    ui.handle(MouseScroll())
-
-
-@window.event
-def on_mouse_motion(x, y, button, modifiers):
-    global ui_state
-    ui_state.mouse_position = Point(x, y)
-    ui.handle(MouseMove())
 
 
 @window.event
 def on_draw():
     window.clear()
-    label.draw()
     main_batch.draw()
+
 
 gl.app.run()
