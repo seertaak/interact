@@ -27,4 +27,4 @@ class MouseScroll:
     pass
 
 
-Event = Union[KeyPress, MousePress, MouseMove]
+Event = Union[KeyPress, MousePress, MouseMove, MouseScroll]
