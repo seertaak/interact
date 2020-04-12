@@ -43,4 +43,4 @@ class InteractionEngine:
             self.gestures = active_gestures
         else:
             self.gestures = deepcopy(self.gesture_prototypes)
-            self._handle(event)
+            self.gestures = self._handle(event)

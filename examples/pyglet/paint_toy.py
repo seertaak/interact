@@ -1,49 +1,71 @@
 import pyglet as gl
-from pyglet.window import key
 from colorsys import *
-from interact.gesture_recognizer import *
+from interact.sugar import *
+from typing import Tuple
+from math import sqrt, pi, sin, cos
 
 from examples.pyglet.scaffolding import *
 
 ui = InteractionEngine()
 bg = (1.0, 0, 0)
 lines: List[Point] = []
-main_batch = gl.graphics.Batch()
+circles: List[Tuple[Point, float]] = []
+p0 = Point(0, 0)
 
 
-def change_color():
+def set_initial_pos():
+    global p0
+    p0 = ui.state.mouse_position
+
+
+def translate(drag=True):
+    global lines
+    global circles
+    global p0
+    d_pos = ui.state.mouse_position - p0 if drag else ui.state.mouse_scroll
+    lines = [[point + d_pos for point in line] for line in lines]
+    circles = [(circle[0] + d_pos, circle[1]) for circle in circles]
+    p0 = ui.state.mouse_position
+
+
+def change_bg(d_hue = 0.0, d_sat = 0.0, d_val = 0.0):
     global bg
     h, s, v = rgb_to_hsv(*bg)
-    h += 0.1
+    h += d_hue
+    s += d_sat
+    v += d_val
     bg = hsv_to_rgb(h, s, v)
     args = list(bg)
     args.append(1.0)
     gl.gl.glClearColor(*args)
 
 
-def change_intensity(dintensity):
-    global bg
-    h, s, v = rgb_to_hsv(*bg)
-    v += dintensity
-    bg = hsv_to_rgb(h, s, v)
-    args = list(bg)
-    args.append(1.0)
-    gl.gl.glClearColor(*args)
-
-
-def change_saturation(dsat):
-    global bg
-    h, s, v = rgb_to_hsv(*bg)
-    s += dsat
-    bg = hsv_to_rgb(h, s, v)
-    args = list(bg)
-    args.append(1.0)
-    gl.gl.glClearColor(*args)
-
-
-def draw_lines():
-    global main_batch
+def draw_shapes():
+    global lines
+    global circles
     main_batch = gl.graphics.Batch()
+    for o, r in circles:
+        steps = 50
+        coords = []
+
+        for i in range(0, steps):
+            angle = i/steps*2*pi
+            coords.append(o.x + r*cos(angle))
+            coords.append(o.y + r*sin(angle))
+
+            coords.append(coords[-2])
+            coords.append(coords[-2])
+
+        coords.extend([coords[0], coords[1]])
+
+        main_batch.add(
+            2*steps,
+            gl.gl.GL_LINES,
+            None,
+            ('v2f', coords[2:]),
+            ('c3B', [255, 255, 255, 255, 255, 255]*steps))
+
+
     for line in lines:
         main_batch.add(
             2,
@@ -52,86 +74,76 @@ def draw_lines():
             ('v2f', (line[0].x, line[0].y, line[1].x, line[1].y)),
             ('c3B', (255, 255, 255, 255, 255, 255))
         )
+    main_batch.draw()
 
 
 def begin_line():
+    global lines
     lines.append((ui.state.mouse_position, ui.state.mouse_position))
-    draw_lines()
 
 
 def update_line():
+    global lines
     assert lines
     lines[-1] = (lines[-1][0], ui.state.mouse_position)
-    draw_lines()
 
 
-cmd_quit = Trivial(KeyPress(ord('q'), 'up'), lambda: gl.app.exit())
-cmd_draw_line = Sequence([
-    Trivial(KeyPress(ord('l'), 'down'), begin_line),
-    Repeating(Trivial(MouseMove(), update_line)),
-    Trivial(KeyPress(ord('l'), 'up')),
-])
-cmd_change_color = IgnoreIf(
-    lambda e: isinstance(e, KeyPress) and e.action == 'up',
-    Sequence([
-        Trivial(KeyPress(ord('c'), 'down')),
-        Repeating(Trivial(KeyPress(ord('d'), 'down'), change_color))
-    ])
-)
-cmd_change_intensity = Sequence(
-    [
-        Trivial(KeyPress(ord('i'), 'down')),
-        Repeating(
-            Alternatives([
-                Sequence(
-                    [
-                        Trivial(KeyPress(key.UP, 'down')),
-                        Trivial(KeyPress(key.UP, 'up')),
-                    ],
-                    lambda: change_intensity(0.1)
-                ),
-                Sequence(
-                    [
-                        Trivial(KeyPress(key.DOWN, 'down')),
-                        Trivial(KeyPress(key.DOWN, 'up')),
-                    ],
-                    lambda: change_intensity(-0.1)
-                ),
-                Trivial(
-                    MouseScroll(),
-                    lambda: change_intensity(ui.state.mouse_scroll.y/100.0)
-                )
-            ])
-        )
-    ]
-)
-cmd_change_saturation = Sequence(
-    [
-        Trivial(KeyPress(ord('s'), 'down')),
-        Repeating(
-            Alternatives([
-                Sequence(
-                    [
-                        Trivial(KeyPress(key.UP, 'down')),
-                        Trivial(KeyPress(key.UP, 'up')),
-                    ],
-                    lambda: change_saturation(0.1)
-                ),
-                Sequence(
-                    [
-                        Trivial(KeyPress(key.DOWN, 'down')),
-                        Trivial(KeyPress(key.DOWN, 'up')),
-                    ],
-                    lambda: change_saturation(-0.1)
-                ),
-            ])
-        )
-    ]
-)
+def begin_circle():
+    global circles
+    circles.append((ui.state.mouse_position, 1))
 
-ui.commands = [cmd_quit, cmd_change_color, cmd_change_intensity, cmd_change_saturation, cmd_draw_line]
 
-window = gl.window.Window(resizable=True)
+def update_circle():
+    global circles
+    assert circles
+    origin = circles[-1][0]
+    mouse = ui.state.mouse_position
+    r = sqrt((mouse.x - origin.x)**2 + (mouse.y - origin.y)**2)
+    circles[-1] = (origin, r)
+    on_draw()
+    window.flip()
+
+
+number = None
+
+
+def push_number(i: int):
+    def fn():
+        global number
+        if number is not None:
+            number = number*10 + i
+        else:
+            number = i
+        print(number)
+    return fn
+
+
+def reset_number():
+    global number
+    number = None
+
+
+number_recognizer = [Key(48 + i, str(i))[push_number(i)] for i in range(0, 10)]
+ui.commands = [
+    Q[gl.app.exit],
+    (gr.Alternatives(number_recognizer) - T[lambda: gl.gl.glLineWidth(number)])[reset_number].ignore_key_up,
+    L[begin_line] + MOUSE_MOVE[update_line].repeat,
+    C[begin_circle] + MOUSE_MOVE[update_circle].repeat,
+    BACKSPACE - BACKSPACE[lambda: (circles.clear(), lines.clear())],
+    B - D[lambda: change_bg(d_hue=0.05)].repeat,
+    I + ( MOUSE_SCROLL[lambda: change_bg(d_val=ui.state.mouse_scroll.y / 100.0)]
+        | UP[lambda: change_bg(d_val=0.1)]
+        | DOWN[lambda: change_bg(d_val=-0.1)]
+        ).repeat,
+    S + ( MOUSE_SCROLL[lambda: change_bg(d_sat=ui.state.mouse_scroll.y / 100.0)]
+        | UP[lambda: change_bg(d_sat=0.1)]
+        | DOWN[lambda: change_bg(d_sat=-0.1)]
+        ).repeat,
+    MOUSE_DOWN[set_initial_pos] - MOUSE_MOVE[translate].repeat_until(MOUSE_UP)
+]
+
+window = gl.window.Window(resizable=True, vsync=False)
+
 window.on_key_press = on_key_press(ui)
 window.on_key_release = on_key_release(ui)
 window.on_mouse_press = on_mouse_press(ui)
@@ -146,7 +158,7 @@ gl.gl.glLineWidth(2)
 @window.event
 def on_draw():
     window.clear()
-    main_batch.draw()
+    draw_shapes()
 
 
 gl.app.run()
